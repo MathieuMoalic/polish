@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Polish Case Endings</title>
   <style>
 :root {
@@ -103,7 +103,7 @@ body {
   gap: 8px;
   align-items: stretch;
   width: min(1200px, calc(100% - 28px));
-  padding: 10px;
+  padding: 10px 10px calc(10px + env(safe-area-inset-bottom, 0px));
   border: 1px solid rgba(255,255,255,.8);
   border-bottom: 0;
   border-radius: 16px 16px 0 0;
@@ -167,6 +167,34 @@ body {
 }
 
 .translate-status.error { color: #b91c1c; }
+
+.translator-toggle {
+  display: none;
+  position: absolute;
+  top: -34px;
+  left: 50%;
+  transform: translateX(-50%);
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 5px 14px;
+  border: 1px solid rgba(255,255,255,.8);
+  border-bottom: 0;
+  border-radius: 12px 12px 0 0;
+  color: var(--text);
+  background: rgba(255,255,255,.94);
+  backdrop-filter: blur(14px);
+  box-shadow: 0 -6px 16px rgba(20,34,58,.10);
+  font: inherit;
+  font-size: .78rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.translator.collapsed .translator-toggle svg {
+  transform: rotate(180deg);
+}
 
 .translate-alternatives {
   grid-column: 1 / -1;
@@ -324,9 +352,10 @@ td {
 
 .variant {
   display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
   justify-content: space-between;
-  gap: 10px;
+  gap: 2px 10px;
 }
 
 .variant + .variant {
@@ -427,8 +456,29 @@ td {
   .usage { margin: 0 8px 9px; }
   th, td { padding: 7px 9px; }
   tbody th { width: 28%; }
-.translator {
+  td { min-width: 110px; font-size: .8rem; }
+
+  .nav { padding: 6px; gap: 4px; }
+
+  .nav-row {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+    padding-bottom: 1px;
+    margin: 0 -8px;
+    padding-left: 8px;
+    padding-right: 8px;
+    mask-image: linear-gradient(90deg, transparent, #000 14px, #000 calc(100% - 14px), transparent);
+  }
+
+  .nav-row::-webkit-scrollbar { display: none; }
+
+  .nav a { flex: 0 0 auto; }
+
+  .translator {
     grid-template-columns: 1fr;
+    transition: transform .22s ease;
   }
 
   .translate-controls,
@@ -436,6 +486,27 @@ td {
     grid-column: auto;
     flex-direction: row;
   }
+
+  .translator-toggle {
+    display: flex;
+  }
+
+  .translator.collapsed {
+    transform: translateX(-50%) translateY(calc(100% - var(--peek-height, 40px)));
+  }
+
+  .translator.collapsed .translate-box,
+  .translator.collapsed .translate-controls,
+  .translator.collapsed .translate-status,
+  .translator.collapsed .translate-alternatives {
+    visibility: hidden;
+  }
+}
+
+@media (max-width: 400px) {
+  td { min-width: 92px; font-size: .76rem; }
+  h2 { font-size: 1.3rem; }
+  .nav a { padding: 6px 8px; font-size: .8rem; }
 }
 
 @media (prefers-color-scheme: dark) {
@@ -466,6 +537,11 @@ td {
   }
 
   .translator {
+    background: rgba(16,22,34,.95);
+    border-color: rgba(255,255,255,.08);
+  }
+
+  .translator-toggle {
     background: rgba(16,22,34,.95);
     border-color: rgba(255,255,255,.08);
   }
@@ -1480,6 +1556,13 @@ td {
   </main>
 
   <div id="translator" class="translator">
+  <button
+    id="lt-toggle"
+    class="translator-toggle"
+    type="button"
+    aria-expanded="true"
+    aria-controls="translator"
+  >Translator ▾</button>
   <textarea
     id="lt-source"
     class="translate-box"
@@ -1530,14 +1613,43 @@ const clearBtn = document.getElementById("lt-clear");
 const openBtn = document.getElementById("lt-open");
 const status = document.getElementById("lt-status");
 const alternativesBox = document.getElementById("lt-alternatives");
+const toggleBtn = document.getElementById("lt-toggle");
+
+const MOBILE_QUERY = window.matchMedia("(max-width: 620px)");
+const PEEK_HEIGHT = 40;
 
 function updateTranslatorHeight() {
-  const height = Math.ceil(panel.getBoundingClientRect().height);
+  const collapsed = panel.classList.contains("collapsed");
+  const height = collapsed
+    ? PEEK_HEIGHT
+    : Math.ceil(panel.getBoundingClientRect().height);
   document.documentElement.style.setProperty(
     "--translator-height",
     `${height}px`
   );
 }
+
+function setCollapsed(collapsed) {
+  panel.classList.toggle("collapsed", collapsed);
+  toggleBtn.setAttribute("aria-expanded", String(!collapsed));
+  toggleBtn.textContent = collapsed ? "Translator ▴" : "Translator ▾";
+  updateTranslatorHeight();
+}
+
+// Start collapsed on small screens so the panel doesn't eat the viewport;
+// stays open on larger screens where it doesn't compete for space.
+setCollapsed(MOBILE_QUERY.matches);
+
+MOBILE_QUERY.addEventListener("change", (event) => {
+  setCollapsed(event.matches);
+});
+
+toggleBtn.addEventListener("click", () => {
+  setCollapsed(!panel.classList.contains("collapsed"));
+});
+
+// Expand automatically once someone actually starts typing/focusing it.
+sourceText.addEventListener("focus", () => setCollapsed(false));
 
 updateTranslatorHeight();
 
@@ -1742,10 +1854,29 @@ sourceText.addEventListener("keydown", (event) => {
       lastRow.style.height = `${Math.ceil(current + delta)}px`;
     }
   
+    function stackedLayout() {
+      // Mirrors the `.case-grid` breakpoint: once it drops to one column,
+      // the noun/adjective tables are no longer side by side, so forcing
+      // their row heights to match no longer makes sense.
+      return window.matchMedia("(max-width: 900px)").matches;
+    }
+
+    function clearSyncedHeights(card) {
+      card.querySelectorAll("thead tr, tbody tr").forEach(row => {
+        row.style.height = "";
+      });
+      card.classList.remove("row-sync-active");
+    }
+
     function syncCard(card, spec) {
       const blocks = card.querySelectorAll(".word-block");
       if (blocks.length < 2) return;
-  
+
+      if (stackedLayout()) {
+        clearSyncedHeights(card);
+        return;
+      }
+
       card.classList.add("row-sync-active");
   
       const nounTable = blocks[0].querySelector("table");
